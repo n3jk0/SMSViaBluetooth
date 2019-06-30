@@ -1,3 +1,5 @@
 <resources>
-    <string name="app_name">SMSViaBluetooth</string>
+    <string name="app_name">Send SMS via bluetooth</string>
+    <string name="choose_paired_device">Choose paired device</string>
+    <string name="add_paired_device">Add paired device</string>
 </resources>
