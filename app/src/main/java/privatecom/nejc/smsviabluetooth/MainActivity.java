@@ -1,13 +1,23 @@
 package privatecom.nejc.smsviabluetooth;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Message;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.telephony.SmsManager;
 import android.util.Log;
 import android.util.SparseBooleanArray;
 import android.view.Menu;
@@ -28,11 +38,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import privatecom.nejc.smsviabluetooth.domain.MessageConstants;
+
 public class MainActivity extends AppCompatActivity {
     ListView pairedDevicesListView;
     BluetoothAdapter bluetoothAdapter;
     private final static int REQUEST_ENABLE_BT = 1;
-    private final static String NAME = "bluetooth_sms";
+    private final static String NAME = "123e4567-e89b-12d3-a456-556642440000";
     private final static UUID MY_UUID = UUID.fromString(NAME);
     private final static String TAG = "smsviabluetooth";
 
@@ -67,6 +79,7 @@ public class MainActivity extends AppCompatActivity {
         Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
 
         for (BluetoothDevice device : pairedDevices) {
+//            device.getUuids()[0].getUuid();
             // todo: get what actually needed
             System.out.println(device.getName() + " " + device.getAddress());
             connectedDevices.add(device.getName());
@@ -107,67 +120,61 @@ public class MainActivity extends AppCompatActivity {
             startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
         }
 
-    }
-
-    private class AcceptThread extends Thread {
-        private final BluetoothServerSocket mmServerSocket;
-
-        public AcceptThread() {
-            // Use a temporary object that is later assigned to mmServerSocket
-            // because mmServerSocket is final.
-            BluetoothServerSocket tmp = null;
-            try {
-                // MY_UUID is the app's UUID string, also used by the client code.
-                tmp = bluetoothAdapter.listenUsingRfcommWithServiceRecord(NAME, MY_UUID);
-            } catch (IOException e) {
-                Log.e(TAG, "Socket's listen() method failed", e);
-            }
-            mmServerSocket = tmp;
-        }
-
-        public void run() {
-            BluetoothSocket socket = null;
-            // Keep listening until exception occurs or a socket is returned.
-            while (true) {
+        Thread thread = new Thread() {
+            public void run() {
                 try {
-                    socket = mmServerSocket.accept();
+                    BluetoothServerSocket socket = bluetoothAdapter.listenUsingRfcommWithServiceRecord("SMS_via_blue", MY_UUID);
+                    Handler blueHandler = new BlueHandler();
+                    MyBluetoothService myBluetoothService = new MyBluetoothService(blueHandler);
+                    BluetoothSocket deviceSocket = socket.accept();
+                    myBluetoothService.startListening(deviceSocket);
                 } catch (IOException e) {
-                    Log.e(TAG, "Socket's accept() method failed", e);
-                    break;
-                }
-
-                if (socket != null) {
-                    // A connection was accepted. Perform work associated with
-                    // the connection in a separate thread.
-                    manageMyConnectedSocket(socket);
-                    try {
-                        mmServerSocket.close();
-                    } catch (IOException e) {
-                        Log.e(TAG, "Could not close the connect socket", e);
-                    }
-                    break;
+                    e.printStackTrace();
                 }
             }
-        }
+        };
+        thread.run();
+    }
 
-        // Closes the connect socket and causes the thread to finish.
-        public void cancel() {
+    public void sendSMS(String phoneNumber, String message) {
+//      todo: validate phone number
+        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.SEND_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Permission is not granted
+            // Ask for permision
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.SEND_SMS}, 2);
+            sendSMS(phoneNumber, message);
+        } else {
+            // Permission has already been granted
             try {
-                mmServerSocket.close();
-            } catch (IOException e) {
-                Log.e(TAG, "Could not close the connect socket", e);
-            }
-        }
-
-        private void manageMyConnectedSocket(BluetoothSocket socket) {
-            try (InputStream inputStream = socket.getInputStream()) {
-//                todo: implement
-                int read = inputStream.read();
-            } catch (IOException e) {
-                Log.e(TAG, "Could not close the connect socket", e);
-
+                SmsManager smsManager = SmsManager.getDefault();
+                ArrayList<String> divideMessage = smsManager.divideMessage(message);
+                smsManager.sendMultipartTextMessage(phoneNumber, null, divideMessage, null, null);
+            } catch (Exception e) {
+                if (e.toString().contains(Manifest.permission.READ_PHONE_STATE) && ContextCompat
+                        .checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_PHONE_STATE}, 3);
+                    sendSMS(phoneNumber, message);
+                }
             }
         }
     }
 
+    private class BlueHandler extends Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case MessageConstants.MESSAGE_READ:
+                    sendSMS("+38670701664", new String((byte[]) msg.obj));
+//                    sendSMS("+38641692228", new String((byte[]) msg.obj));
+                    break;
+                case MessageConstants.MESSAGE_WRITE:
+                    break;
+                case MessageConstants.MESSAGE_TOAST:
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
 }
